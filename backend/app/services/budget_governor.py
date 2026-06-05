@@ -99,6 +99,8 @@ async def settle_budget(db: AsyncSession, reservation_id: str, actual_cost: floa
     refund = entry.amount_reserved - actual_cost
     if refund > 0:
         project.treasury_balance += refund
+    elif refund < 0:
+        project.treasury_balance += refund  # deduct the overrun
 
     entry.amount_settled = actual_cost
     entry.status = "settled"

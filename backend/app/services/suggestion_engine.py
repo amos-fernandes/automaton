@@ -36,7 +36,7 @@ def rank_candidate(
 ) -> float:
     utility = (
         expected_value
-        + WEIGHTS["beta_cash"] * math.log(cash_after + EPS)
+        + WEIGHTS["beta_cash"] * math.log(max(cash_after, 0) + EPS)
         - WEIGHTS["lambda_cost"] * cost
         - WEIGHTS["lambda_risk"] * risk
         - WEIGHTS["lambda_privacy"] * privacy_risk
