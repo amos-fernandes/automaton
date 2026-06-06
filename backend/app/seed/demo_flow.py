@@ -16,7 +16,8 @@ from app.models.rewards import PaymentReceipt, UsageAttestation, RewardLedgerEnt
 from app.models.memory import MemoryItem
 from app.models.suggestions import CandidateSuggestion
 
-from app.services.eval_runner import run_eval, issue_attestation
+from app.services.eval_runner import run_eval, run_comparative_eval, issue_attestation
+from app.services.rubric_generator import generate_rubric_from_traces, generate_worldlets_from_traces
 from app.services.deploy_broker import create_deployment_lease, create_deployment_receipt
 from app.services.deploy_adapters import mock_deploy_adapter
 from app.services.mpp_gateway import verify_mock_payment, route_revenue
@@ -116,13 +117,49 @@ async def run_demo_flow(db: AsyncSession) -> dict:
     await db.flush()
     steps.append("5. Harness Patch created: prompt_patch + tool_description_patch (LOW risk)")
 
-    # Step 6: Run Eval for capsule
-    eval_run_1 = await run_eval(db, "capability_capsule", new_capsule.id, "rubric_release_radar_v1")
-    steps.append(f"6. Eval run: ReleaseRadarBench_v1 - {eval_run_1.status}, hidden holdout: {eval_run_1.hidden_holdout_result}")
+    # Step 5b: Create a production trace (autonomy receipt) for baseline agent
+    # This represents the baseline's historical production behavior
+    baseline_receipt = AutonomyReceipt(
+        id=f"receipt_baseline_{uuid.uuid4().hex[:8]}",
+        project_id="project_release_briefs",
+        agent_id="agent_release_scout",
+        harness_id="harness_release_scout_v1",
+        capability_class="release_monitoring",
+        visibility="PRIVATE_RAW",
+        commitment_hash=commitment_for_json({"baseline": "trace"}, "conway/baseline/v1"),
+        public_summary={"action": "release_monitoring", "outcome": "brief_generated"},
+        cost_summary={"eval": 0.02, "compute": 0.05, "total": 0.07},
+    )
+    db.add(baseline_receipt)
+    await db.flush()
+    steps.append("5b. Baseline production trace created (autonomy receipt for scoring)")
 
-    # Step 7: Issue attestation
+    # Step 6: Comparative Eval — baseline (v1.0.0) vs candidate (v1.1.0)
+    # Auto-generate rubric from production traces
+    auto_rubric = await generate_rubric_from_traces(db, "project_release_briefs", "release_monitoring")
+    auto_worldlets = await generate_worldlets_from_traces(db, "project_release_briefs", "release_monitoring")
+    steps.append(f"6a. Auto-generated rubric '{auto_rubric.name}' with {len(auto_rubric.dimensions)} dimensions from production traces")
+    steps.append(f"6b. Auto-generated {len(auto_worldlets)} simulation worldlets from trace patterns")
+
+    # Run comparative eval: baseline capsule vs candidate capsule
+    eval_run_1 = await run_comparative_eval(
+        db,
+        baseline_id="cap_release_watcher_v1",  # current production capsule
+        candidate_id=new_capsule.id,            # new v1.1.0 capsule
+        rubric_id=auto_rubric.id,
+        target_type="capability_capsule",
+        rubric_auto_generated=True,
+    )
+    baseline_avg = eval_run_1.public_summary.get("baseline_avg", 0)
+    candidate_avg = eval_run_1.public_summary.get("candidate_avg", 0)
+    steps.append(
+        f"6c. Comparative eval: baseline={baseline_avg:.3f} vs candidate={candidate_avg:.3f} → "
+        f"winner={eval_run_1.winner}, recommendation={eval_run_1.recommendation}"
+    )
+
+    # Step 7: Issue attestation for the winner
     att_1 = await issue_attestation(db, eval_run_1.id)
-    steps.append(f"7. Eval Attestation issued: allows R2_READ, expires in 30 days")
+    steps.append(f"7. Eval Attestation issued: allows R2_READ, winner={eval_run_1.winner}, expires in 30 days")
 
     # Step 8: Generate suggestions
     suggestions = await generate_suggestions(db, "project_release_briefs")
@@ -314,6 +351,16 @@ async def run_demo_flow(db: AsyncSession) -> dict:
             "memory_items": mem_count,
             "usage_attestations": ua_count,
             "reward_entries": rew_count,
+        },
+        "comparative_eval": {
+            "baseline_id": eval_run_1.baseline_id,
+            "candidate_id": eval_run_1.target_id,
+            "baseline_avg": eval_run_1.public_summary.get("baseline_avg", 0),
+            "candidate_avg": eval_run_1.public_summary.get("candidate_avg", 0),
+            "winner": eval_run_1.winner,
+            "recommendation": eval_run_1.recommendation,
+            "rubric_auto_generated": eval_run_1.rubric_auto_generated == "true",
+            "dimensions_evaluated": eval_run_1.public_summary.get("dimensions_evaluated", 0),
         },
         "privacy_checks": {
             "raw_receipt_publicly_visible": False,

@@ -42,3 +42,14 @@ async def test_demo_full_loop(client: AsyncClient):
     assert objects["memory_items"] >= 1
     assert objects["usage_attestations"] >= 1
     assert objects["reward_entries"] >= 3
+
+    # Comparative eval assertions
+    comp = snapshot["comparative_eval"]
+    assert comp["baseline_id"] == "cap_release_watcher_v1"
+    assert comp["candidate_id"] is not None
+    assert comp["rubric_auto_generated"] is True
+    assert comp["dimensions_evaluated"] >= 3
+    assert comp["winner"] in ("candidate", "baseline", "tie")
+    assert comp["recommendation"] in ("deploy_candidate", "keep_baseline", "needs_review")
+    assert isinstance(comp["baseline_avg"], (int, float))
+    assert isinstance(comp["candidate_avg"], (int, float))

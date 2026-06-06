@@ -50,6 +50,16 @@ class EvalRun(Base):
     hard_gate_results = Column(JSON, nullable=True)
     hidden_holdout_result = Column(String, default="not_run")
 
+    # Comparative eval fields
+    eval_mode = Column(String, default="single")  # "single" or "comparative"
+    baseline_id = Column(String, nullable=True)
+    baseline_scores = Column(JSON, nullable=True)
+    candidate_scores = Column(JSON, nullable=True)
+    rubric_auto_generated = Column(String, default="false")  # "true" if auto-generated
+    winner = Column(String, nullable=True)  # "baseline", "candidate", or "tie"
+    score_delta = Column(JSON, nullable=True)  # per-dimension deltas
+    recommendation = Column(String, nullable=True)  # "deploy_candidate", "keep_baseline", "needs_review"
+
     cost_summary = Column(JSON, default=dict)
     public_summary = Column(JSON, default=dict)
     private_notes_vault_uri = Column(String, nullable=True)
